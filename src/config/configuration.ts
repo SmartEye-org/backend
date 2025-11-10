@@ -39,7 +39,7 @@ export default () => ({
 
   // Application info
   app: {
-    name: 'Smart Residential Backend',
+    name: 'Smart eyes Backend',
     version: '0.1.0',
     description: 'Backend service for Smart Residential Monitoring System',
   },
