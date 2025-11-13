@@ -43,4 +43,9 @@ export default () => ({
     version: '0.1.0',
     description: 'Backend service for Smart Residential Monitoring System',
   },
+  jwt: {
+    secret:
+      process.env.JWT_SECRET || 'your-super-secret-key-change-in-production',
+    expiresIn: process.env.JWT_EXPIRES_IN || '24h',
+  },
 });
