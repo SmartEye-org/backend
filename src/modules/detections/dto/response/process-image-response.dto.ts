@@ -1,22 +1,33 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { DetectionItemDto } from './detectioin-item-response.dto';
 
-export class ProcessImageResponseDto {
-  @ApiProperty({ type: [DetectionItemDto] })
-  detections: DetectionItemDto[];
-
+export class DetectionItemDto {
   @ApiProperty()
-  total_persons: number;
-
-  @ApiProperty()
-  saved_detections: number;
-
-  @ApiProperty()
-  timestamp: string;
+  id: string;
 
   @ApiProperty()
   camera_id: string;
 
   @ApiProperty()
-  camera_name: string;
+  track_id: string;
+
+  @ApiProperty({ type: [Number] })
+  bbox: number[];
+
+  @ApiProperty()
+  confidence: number;
+
+  @ApiProperty()
+  person_type: string;
+
+  @ApiProperty({ nullable: true })
+  person_name: string | null;
+
+  @ApiProperty({ nullable: true })
+  face_confidence: number | null;
+
+  @ApiProperty()
+  violation_detected: boolean;
+
+  @ApiProperty()
+  timestamp: string;
 }

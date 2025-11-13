@@ -68,6 +68,9 @@ export class Detection {
   @Column({ type: 'float', nullable: true })
   face_confidence: number;
 
+  @Column({ type: 'boolean', default: false })
+  violation_detected: boolean;
+
   // Timestamp
   @Column({ type: 'timestamptz' })
   timestamp: Date;
