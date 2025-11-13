@@ -12,6 +12,12 @@ import { AuthModule } from './modules/auth/auth.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
+import { ResidentsModule } from './modules/residents/residents.module';
+import { CamerasModule } from './modules/cameras/cameras.module';
+import { DetectionsModule } from './modules/detections/detections.module';
+import { TrackingRoutesModule } from './modules/tracking-routes/tracking-routes.module';
+import { ViolationsModule } from './modules/violations/violations.module';
+import { NgsiLdsModule } from './modules/ngsi-lds/ngsi-lds.module';
 
 @Module({
   imports: [
@@ -51,6 +57,12 @@ import { RolesGuard } from './modules/auth/guards/roles.guard';
 
     UsersModule,
     AuthModule,
+    CamerasModule,
+    ResidentsModule,
+    DetectionsModule,
+    TrackingRoutesModule,
+    ViolationsModule,
+    NgsiLdsModule,
   ],
   controllers: [AppController],
   providers: [
