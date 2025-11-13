@@ -2,46 +2,118 @@ import {
   Controller,
   Get,
   Post,
-  Body,
-  Patch,
-  Param,
-  Delete,
+  Query,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+  ParseFilePipe,
+  MaxFileSizeValidator,
+  FileTypeValidator,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiConsumes,
+  ApiBody,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { DetectionsService } from './detections.service';
-import { CreateDetectionDto } from './dto/create-detection.dto';
-import { UpdateDetectionDto } from './dto/update-detection.dto';
-import { ApiTags } from '@nestjs/swagger';
+import { ProcessImageDto } from './dto/process-image.dto';
+import { GetDetectionsDto } from './dto/get-detections.dto';
+import { ProcessImageResponseDto } from './dto/response/process-image-response.dto';
+import { GetDetectionsResponseDto } from './dto/response/get-detection-response.dto';
 
 @ApiTags('detections')
+@ApiBearerAuth()
 @Controller('detections')
 export class DetectionsController {
   constructor(private readonly detectionsService: DetectionsService) {}
 
-  @Post()
-  create(@Body() createDetectionDto: CreateDetectionDto) {
-    return this.detectionsService.create(createDetectionDto);
+  @Post('process')
+  @ApiOperation({
+    summary: 'Process image for person detection',
+    description:
+      'Upload an image to detect persons, track movements, and identify residents',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['image'],
+      properties: {
+        image: {
+          type: 'string',
+          format: 'binary',
+          description: 'Image file (JPEG, PNG)',
+        },
+        camera_id: {
+          type: 'string',
+          default: 'camera-01',
+          description: 'Camera identifier',
+        },
+        location: {
+          type: 'string',
+          description: 'Location description (optional)',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Detection results',
+    type: ProcessImageResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Invalid input' })
+  @UseInterceptors(FileInterceptor('image'))
+  async processImage(
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 10 * 1024 * 1024 }), // 10MB
+          new FileTypeValidator({ fileType: /(jpg|jpeg|png)$/ }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+    @Query() dto: ProcessImageDto,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+
+    return this.detectionsService.processImage(
+      file.buffer,
+      file.originalname,
+      dto.camera_id,
+      dto.location,
+    );
   }
 
   @Get()
-  findAll() {
-    return this.detectionsService.findAll();
+  @ApiOperation({
+    summary: 'Get recent detections',
+    description: 'Retrieve recent detection records with optional limit',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of recent detections',
+    type: GetDetectionsResponseDto,
+  })
+  async getRecentDetections(@Query() dto: GetDetectionsDto) {
+    return this.detectionsService.getRecentDetections(dto.limit);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.detectionsService.findOne(+id);
-  }
-
-  @Patch(':id')
-  update(
-    @Param('id') id: string,
-    @Body() updateDetectionDto: UpdateDetectionDto,
-  ) {
-    return this.detectionsService.update(+id, updateDetectionDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.detectionsService.remove(+id);
+  @Get('stats')
+  @ApiOperation({
+    summary: 'Get detection statistics',
+    description: 'Get summary statistics of detections',
+  })
+  @ApiResponse({ status: 200, description: 'Detection statistics' })
+  getStats() {
+    return {
+      message: 'Statistics endpoint - to be implemented',
+    };
   }
 }
