@@ -23,6 +23,14 @@ import { User, UserRole } from '../users/entities/user.entity';
 import { LoginDto } from './dtos/login.dto';
 import { RegisterDto } from './dtos/register.dto';
 import { LoginResponseDto } from './dtos/responses/login-response.dto';
+import { ApiResponseDto } from 'src/common/dto/api-response.dto';
+import { LogoutResponseDto } from './dtos/responses/logout-response.dto';
+import { ProfileResponseDto } from './dtos/responses/profile-response.dto';
+import { RegisterResponseDto } from './dtos/responses/register-response.dto';
+
+interface RequestWithUser extends Request {
+  user: User;
+}
 
 @ApiTags('auth')
 @Controller('auth')
@@ -41,9 +49,13 @@ export class AuthController {
     type: LoginResponseDto,
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  async login(@Body() loginDto: LoginDto): Promise<LoginResponseDto> {
+  async login(
+    @Body() loginDto: LoginDto,
+  ): Promise<ApiResponseDto<LoginResponseDto>> {
     this.logger.log(`Login attempt: ${loginDto.email}`);
-    return this.authService.login(loginDto);
+    const result = await this.authService.login(loginDto);
+
+    return new ApiResponseDto(result, 'Login successful', HttpStatus.OK);
   }
 
   @Post('register')
@@ -51,19 +63,43 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Register new user (admin only)' })
-  @ApiResponse({ status: 201, description: 'User registered successfully' })
+  @ApiResponse({
+    status: 201,
+    description: 'User registered successfully',
+    type: RegisterResponseDto,
+  })
   @ApiResponse({ status: 409, description: 'Email already exists' })
-  async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
+  async register(
+    @Body() registerDto: RegisterDto,
+  ): Promise<ApiResponseDto<RegisterResponseDto>> {
+    const result = await this.authService.register(registerDto);
+
+    return new ApiResponseDto(
+      result,
+      'User registered successfully',
+      HttpStatus.CREATED,
+    );
   }
 
   @Get('profile')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current user profile' })
-  @ApiResponse({ status: 200, description: 'Profile retrieved successfully' })
-  async getProfile(@Request() req: Request & { user: User }) {
-    return this.authService.getProfile(req.user.id);
+  @ApiResponse({
+    status: 200,
+    description: 'Profile retrieved successfully',
+    type: ProfileResponseDto,
+  })
+  async getProfile(
+    @Request() req: RequestWithUser,
+  ): Promise<ApiResponseDto<ProfileResponseDto>> {
+    const profile = await this.authService.getProfile(req.user.id);
+
+    return new ApiResponseDto(
+      profile,
+      'Profile retrieved successfully',
+      HttpStatus.OK,
+    );
   }
 
   @Post('logout')
@@ -71,11 +107,19 @@ export class AuthController {
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout (invalidate token on client)' })
-  logout() {
+  @ApiResponse({
+    status: 200,
+    description: 'Logout successful',
+    type: LogoutResponseDto,
+  })
+  logout(): ApiResponseDto<LogoutResponseDto> {
     // In JWT, logout is typically handled on client by removing token
     // Optionally implement token blacklist with Redis
-    return {
+    const data: LogoutResponseDto = {
       message: 'Logout successful',
+      timestamp: new Date().toISOString(),
     };
+
+    return new ApiResponseDto(data, 'Logout successful', HttpStatus.OK);
   }
 }

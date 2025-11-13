@@ -128,12 +128,130 @@ export class DetectionsService {
         detections: savedDetections,
       };
     } catch (error: unknown) {
-      const err = error as { message?: string };
-      this.logger.error(
-        `Detection processing failed: ${err?.message ?? 'Unknown error'}`,
-      );
+      if (error instanceof Error) {
+        this.logger.error(`Detection processing failed: ${error.message}`);
+      } else {
+        this.logger.error('Detection processing failed: Unknown error');
+      }
       throw error;
     }
+  }
+
+  async getRecentEvents(params: {
+    limit?: number;
+    offset?: number;
+    camera_id?: string;
+    person_type?: string;
+    start_date?: string;
+    end_date?: string;
+  }) {
+    const {
+      limit = 50,
+      offset = 0,
+      camera_id,
+      person_type,
+      start_date,
+      end_date,
+    } = params;
+
+    const query = this.detectionRepo
+      .createQueryBuilder('d')
+      .leftJoinAndSelect('d.camera', 'c')
+      .orderBy('d.timestamp', 'DESC')
+      .skip(offset)
+      .take(limit);
+
+    // Filters
+    if (camera_id) {
+      query.andWhere('d.camera_id = :camera_id', { camera_id });
+    }
+
+    if (person_type) {
+      query.andWhere('d.person_type = :person_type', { person_type });
+    }
+
+    if (start_date) {
+      query.andWhere('d.timestamp >= :start_date', { start_date });
+    }
+
+    if (end_date) {
+      query.andWhere('d.timestamp <= :end_date', { end_date });
+    }
+
+    const [detections, total] = await query.getManyAndCount();
+
+    // Transform to DTO
+    const events = detections.map((d) => ({
+      id: d.id.toString(),
+      event_id: `EVT-${String(d.id).padStart(6, '0')}`,
+      camera_id: d.camera_id,
+      camera_name: d.camera?.name || 'Unknown',
+      detected_time: d.timestamp.toISOString(),
+
+      // Person info
+      track_id: d.track_id,
+      person_type: d.person_type,
+      person_name: d.person_name,
+      face_id: d.person_name
+        ? `Face #${d.person_id}`
+        : `Face #${d.track_id.slice(-3)}`,
+
+      // Detection details
+      action: d.action || 'unknown',
+      confidence: Math.round(d.confidence * 100),
+      face_confidence: d.face_confidence
+        ? Math.round(d.face_confidence * 100)
+        : null,
+
+      // Event classification
+      event_type: d.person_name ? 'Face Recognition' : 'Person Detection',
+      event_details: this.getEventDetails(d),
+      alert_level: this.getAlertLevel(d),
+
+      // Media
+      bbox: d.bbox,
+      snapshot_url: `/api/detections/${d.id}/snapshot`,
+
+      // Status - Fix: check if property exists
+      has_violation: d.violation_detected ?? false, // Use nullish coalescing
+      is_acknowledged: false,
+      notes: null,
+    }));
+
+    return {
+      events,
+      total,
+      page: Math.floor(offset / limit) + 1,
+      pages: Math.ceil(total / limit),
+    };
+  }
+
+  private getEventDetails(detection: Detection): string {
+    if (detection.person_name) {
+      return `Known - ${detection.person_name}${
+        detection.action ? ` (${detection.action})` : ''
+      }`;
+    }
+
+    if (detection.person_type === PersonType.GUEST) {
+      return `Guest${detection.action ? ` (${detection.action})` : ''}`;
+    }
+
+    return `Unknown person${detection.action ? ` (${detection.action})` : ''}`;
+  }
+
+  private getAlertLevel(
+    detection: Detection,
+  ): 'normal' | 'warning' | 'critical' {
+    if (detection.person_type === PersonType.UNKNOWN) {
+      return 'warning';
+    }
+
+    if (detection.action === 'running' || detection.action === 'lying') {
+      return 'warning';
+    }
+
+    return 'normal';
   }
 
   /**

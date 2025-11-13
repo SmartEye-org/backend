@@ -18,6 +18,7 @@ import { DetectionsModule } from './modules/detections/detections.module';
 import { TrackingRoutesModule } from './modules/tracking-routes/tracking-routes.module';
 import { ViolationsModule } from './modules/violations/violations.module';
 import { NgsiLdsModule } from './modules/ngsi-lds/ngsi-lds.module';
+import { StatisticsModule } from './modules/statistics/statistics.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { NgsiLdsModule } from './modules/ngsi-lds/ngsi-lds.module';
     TrackingRoutesModule,
     ViolationsModule,
     NgsiLdsModule,
+    StatisticsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -17,6 +17,8 @@ import { User, UserStatus } from '../users/entities/user.entity';
 import { LoginDto } from './dtos/login.dto';
 import { RegisterDto } from './dtos/register.dto';
 import { LoginResponseDto } from './dtos/responses/login-response.dto';
+import { ProfileResponseDto } from './dtos/responses/profile-response.dto';
+import { RegisterResponseDto } from './dtos/responses/register-response.dto';
 
 @Injectable()
 export class AuthService {
@@ -102,7 +104,7 @@ export class AuthService {
   /**
    * Register new user (admin only)
    */
-  async register(registerDto: RegisterDto): Promise<User> {
+  async register(registerDto: RegisterDto): Promise<RegisterResponseDto> {
     const { email, password, building_id, ...userData } = registerDto;
 
     // Check if email exists
@@ -140,13 +142,20 @@ export class AuthService {
 
     this.logger.log(`New user registered: ${email}`);
 
-    return savedUser;
+    return {
+      id: savedUser.id,
+      email: savedUser.email,
+      name: savedUser.full_name,
+      role: savedUser.role,
+      building_id: savedUser.building_id,
+      created_at: savedUser.created_at,
+    };
   }
 
   /**
    * Get user profile
    */
-  async getProfile(userId: string): Promise<User> {
+  async getProfile(userId: string): Promise<ProfileResponseDto> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
       relations: ['building'],
@@ -156,7 +165,15 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    return user;
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.full_name,
+      role: user.role,
+      building_id: user.building_id,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+    };
   }
 
   /**
