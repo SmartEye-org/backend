@@ -1,3 +1,5 @@
+import { Camera } from 'src/modules/cameras/entities/camera.entity';
+import { Resident } from 'src/modules/residents/entities/resident.entity';
 import { User } from 'src/modules/users/entities/user.entity';
 import {
   Entity,
@@ -55,6 +57,12 @@ export class Building {
 
   @OneToMany(() => User, (user) => user.building)
   users: User[];
+
+  @OneToMany(() => Camera, (camera) => camera.building)
+  cameras: Camera[];
+
+  @OneToMany(() => Resident, (resident) => resident.building)
+  residents: Resident[];
 
   @CreateDateColumn()
   created_at: Date;
