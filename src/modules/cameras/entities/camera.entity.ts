@@ -23,6 +23,15 @@ export enum CameraStatus {
   ONLINE = 'online',
   OFFLINE = 'offline',
   ERROR = 'error',
+  MAINTENANCE = 'maintenance',
+}
+
+// Stream Type Enum
+export enum StreamType {
+  RTSP = 'rtsp',
+  HTTP = 'http',
+  FILE = 'file',
+  WEBCAM = 'webcam',
 }
 
 @Entity('cameras')
@@ -61,6 +70,33 @@ export class Camera {
 
   @Column({ length: 20, default: '1920x1080' })
   resolution: string;
+
+  @Column({ length: 500, nullable: true })
+  stream_url: string; // RTSP/HTTP URL or file path
+
+  @Column({
+    type: 'enum',
+    enum: StreamType,
+    default: StreamType.RTSP,
+  })
+  stream_type: StreamType;
+
+  @Column({ default: false })
+  is_streaming: boolean; // Is currently streaming?
+
+  @Column({ type: 'jsonb', nullable: true })
+  stream_config: {
+    fps?: number; // Target FPS for processing
+    resolution?: string; // e.g., "1920x1080"
+    codec?: string; // e.g., "h264"
+    buffer_size?: number; // Frame buffer size
+  };
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_frame_at: Date; // Last frame received timestamp
+
+  @Column({ default: 0 })
+  frame_count: number; // Total frames processed
 
   // Multi-tenant
   @Column({ type: 'uuid' })
