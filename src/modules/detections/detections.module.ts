@@ -16,5 +16,6 @@ import { EventsModule } from 'src/gateways/events.module';
   ],
   controllers: [DetectionsController],
   providers: [DetectionsService],
+  exports: [DetectionsService],
 })
 export class DetectionsModule {}
