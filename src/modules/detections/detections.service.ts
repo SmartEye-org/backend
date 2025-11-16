@@ -13,11 +13,27 @@ import { Detection, PersonType } from './entities/detection.entity';
 import { EventsGateway } from 'src/gateways/events.gateway';
 import * as FormData from 'form-data';
 import { AiDetectionResponseDto } from './dto/response/ai-detection-response.dto';
+import { GrpcDetectionClient } from './grpc-detection.client';
+
+// ✅ Type for AI detection result
+interface AiDetectionResult {
+  track_id: string;
+  frame_id: number;
+  bbox: number[];
+  confidence: number;
+  action: string;
+  face_detected: boolean;
+  face_encoding?: number[] | null;
+  face_confidence?: number | null;
+  person_id: number;
+  timestamp: string;
+}
 
 @Injectable()
 export class DetectionsService {
   private readonly logger = new Logger(DetectionsService.name);
   private readonly aiServiceUrl: string;
+  private readonly useGrpc: boolean;
 
   constructor(
     private readonly httpService: HttpService,
@@ -29,8 +45,16 @@ export class DetectionsService {
     @InjectRepository(Resident)
     private readonly residentRepo: Repository<Resident>,
     private readonly eventsGateway: EventsGateway,
+    private readonly grpcClient: GrpcDetectionClient,
   ) {
     this.aiServiceUrl = this.configService.getOrThrow<string>('AI_SERVICE_URL');
+    this.useGrpc = this.configService.get<boolean>('USE_GRPC') !== false;
+
+    this.logger.log(`✅ DetectionsService initialized`);
+    this.logger.log(
+      `   Mode: ${this.useGrpc ? 'gRPC (fast)' : 'HTTP (fallback)'}`,
+    );
+    this.logger.log(`   AI Service URL: ${this.aiServiceUrl}`);
   }
 
   async processImage(
@@ -39,6 +63,8 @@ export class DetectionsService {
     cameraId: string = 'camera-01',
     location?: string,
   ) {
+    const startTime = Date.now();
+
     try {
       // 1. Validate camera
       const camera = await this.cameraRepo.findOne({
@@ -49,25 +75,52 @@ export class DetectionsService {
         throw new BadRequestException(`Camera ${cameraId} not found`);
       }
 
-      // 2. Call AI Service (multipart/form-data)
-      const formData = new FormData();
-      formData.append('image', imageBuffer, { filename: fileName });
-      formData.append('camera_id', cameraId);
-      if (location) {
-        formData.append('location', location);
+      // 2. Call AI Service (gRPC primary, HTTP fallback)
+      let aiResults: {
+        detections: AiDetectionResult[];
+        total_persons: number;
+        timestamp: string;
+      };
+
+      if (this.useGrpc) {
+        // gRPC mode (FAST!)
+        const grpcStartTime = Date.now();
+
+        try {
+          aiResults = await this.grpcClient.detectPersons(
+            imageBuffer,
+            cameraId,
+            location,
+          );
+
+          console.log('aiResults: ', aiResults);
+
+          const grpcTime = Date.now() - grpcStartTime;
+
+          this.logger.debug(
+            `✅ gRPC detection: ${grpcTime}ms for camera ${cameraId}`,
+          );
+        } catch (grpcError) {
+          this.logger.error(`gRPC failed, falling back to HTTP:`, grpcError);
+
+          // Fallback to HTTP if gRPC fails
+          aiResults = await this.callHttpDetection(
+            imageBuffer,
+            fileName,
+            cameraId,
+            location,
+          );
+        }
+      } else {
+        // HTTP mode (fallback)
+        this.logger.debug('Using HTTP mode (gRPC disabled)');
+        aiResults = await this.callHttpDetection(
+          imageBuffer,
+          fileName,
+          cameraId,
+          location,
+        );
       }
-
-      const response = await firstValueFrom(
-        this.httpService.post<AiDetectionResponseDto>(
-          `${this.aiServiceUrl}/detect`,
-          formData,
-          {
-            headers: formData.getHeaders(),
-          },
-        ),
-      );
-
-      const aiResults = response.data;
 
       // 3. Save to DB
       const savedDetections: Detection[] = [];
@@ -84,6 +137,7 @@ export class DetectionsService {
           }
         }
 
+        // ✅ FIX: Create detection with proper typing
         const detection = this.detectionRepo.create({
           camera_id: cameraId,
           track_id: det.track_id || `track_${Date.now()}_${det.person_id}`,
@@ -94,12 +148,22 @@ export class DetectionsService {
           person_type: personType,
           person_id: matchedResident?.id,
           person_name: matchedResident?.name,
-          face_confidence: det.face_confidence,
+          // ✅ FIX: face_confidence can be number | undefined, NOT null
+          face_confidence: det.face_confidence ?? undefined,
           timestamp: new Date(det.timestamp),
         });
 
+        // ✅ FIX: Save single entity, not array
         const saved = await this.detectionRepo.save(detection);
         savedDetections.push(saved);
+      }
+
+      // Log total time
+      const totalTime = Date.now() - startTime;
+      if (totalTime > 100) {
+        this.logger.warn(
+          `Detection pipeline slow: ${totalTime}ms for camera ${cameraId}`,
+        );
       }
 
       // 4. Broadcast over WebSocket
@@ -135,6 +199,63 @@ export class DetectionsService {
       }
       throw error;
     }
+  }
+
+  /**
+   * HTTP detection fallback method
+   */
+  private async callHttpDetection(
+    imageBuffer: Buffer,
+    fileName: string,
+    cameraId: string,
+    location?: string,
+  ): Promise<{
+    detections: AiDetectionResult[];
+    total_persons: number;
+    timestamp: string;
+  }> {
+    const httpStartTime = Date.now();
+
+    const formData = new FormData();
+    formData.append('image', imageBuffer, { filename: fileName });
+    formData.append('camera_id', cameraId);
+    if (location) {
+      formData.append('location', location);
+    }
+
+    const response = await firstValueFrom(
+      this.httpService.post<AiDetectionResponseDto>(
+        `${this.aiServiceUrl}/detect`,
+        formData,
+        {
+          headers: formData.getHeaders(),
+        },
+      ),
+    );
+
+    const httpTime = Date.now() - httpStartTime;
+    this.logger.debug(`HTTP detection: ${httpTime}ms for camera ${cameraId}`);
+
+    // ✅ FIX: Transform HTTP response to match AiDetectionResult interface
+    const transformedDetections: AiDetectionResult[] =
+      response.data.detections.map((det) => ({
+        track_id: det.track_id ?? `track_${Date.now()}`,
+        frame_id: det.frame_id ?? 0,
+        bbox: det.bbox,
+        confidence: det.confidence,
+        action: det.action ?? 'unknown',
+        face_detected: det.face_detected ?? false,
+        face_encoding: det.face_encoding ?? null,
+        face_confidence: det.face_confidence ?? null,
+        person_id: det.person_id ?? 0,
+        timestamp: det.timestamp,
+      }));
+
+    return {
+      detections: transformedDetections,
+      total_persons: response.data.total_persons,
+      timestamp: response.data.timestamp,
+    };
   }
 
   async getRecentEvents(params: {
@@ -212,8 +333,8 @@ export class DetectionsService {
       bbox: d.bbox,
       snapshot_url: `/api/detections/${d.id}/snapshot`,
 
-      // Status - Fix: check if property exists
-      has_violation: d.violation_detected ?? false, // Use nullish coalescing
+      // Status
+      has_violation: d.violation_detected ?? false,
       is_acknowledged: false,
       notes: null,
     }));
@@ -254,9 +375,6 @@ export class DetectionsService {
     return 'normal';
   }
 
-  /**
-   * Match face encoding with residents database
-   */
   private async matchFaceWithResident(
     faceEncoding: number[],
   ): Promise<Resident | null> {
@@ -266,7 +384,7 @@ export class DetectionsService {
     });
 
     let bestMatch: Resident | null = null;
-    let bestSimilarity = 0.6; // Threshold
+    let bestSimilarity = 0.6;
 
     for (const resident of residents) {
       if (!resident.face_encoding) continue;
@@ -285,9 +403,6 @@ export class DetectionsService {
     return bestMatch;
   }
 
-  /**
-   * Calculate cosine similarity between two vectors
-   */
   private cosineSimilarity(a: number[], b: number[]): number {
     const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);
     const magA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
@@ -295,9 +410,6 @@ export class DetectionsService {
     return dotProduct / (magA * magB);
   }
 
-  /**
-   * Get recent detections
-   */
   async getRecentDetections(limit: number = 50) {
     const detections = await this.detectionRepo.find({
       relations: ['camera', 'person'],

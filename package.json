@@ -20,6 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.1",
+    "@grpc/proto-loader": "^0.8.0",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/cache-manager": "^3.0.1",
     "@nestjs/common": "^11.0.1",
@@ -62,6 +64,7 @@
     "@types/passport-jwt": "^4.0.1",
     "@types/socket.io": "^3.0.2",
     "@types/supertest": "^6.0.2",
+    "copyfiles": "^2.4.1",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",

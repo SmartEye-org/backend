@@ -7,6 +7,7 @@ import { Resident } from '../residents/entities/resident.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
 import { EventsModule } from 'src/gateways/events.module';
+import { GrpcDetectionClient } from './grpc-detection.client';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { EventsModule } from 'src/gateways/events.module';
     EventsModule,
   ],
   controllers: [DetectionsController],
-  providers: [DetectionsService],
+  providers: [DetectionsService, GrpcDetectionClient],
   exports: [DetectionsService],
 })
 export class DetectionsModule {}
