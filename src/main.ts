@@ -1,9 +1,10 @@
-// src/main.ts
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -11,7 +12,7 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   // Global prefix
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api/v1');
 
   // CORS
   app.enableCors({
@@ -30,6 +31,12 @@ async function bootstrap() {
       },
     }),
   );
+
+  // Global interceptor for response wrapping
+  app.useGlobalInterceptors(new ResponseInterceptor());
+
+  // Global exception filter
+  app.useGlobalFilters(new HttpExceptionFilter());
 
   // Swagger documentation
   const config = new DocumentBuilder()

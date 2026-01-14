@@ -7,6 +7,18 @@ import configuration from './config/configuration';
 // Controllers & Services
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { UsersModule } from './modules/users/users.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { APP_GUARD } from '@nestjs/core';
+import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
+import { RolesGuard } from './modules/auth/guards/roles.guard';
+import { ResidentsModule } from './modules/residents/residents.module';
+import { CamerasModule } from './modules/cameras/cameras.module';
+import { DetectionsModule } from './modules/detections/detections.module';
+import { TrackingRoutesModule } from './modules/tracking-routes/tracking-routes.module';
+import { ViolationsModule } from './modules/violations/violations.module';
+import { NgsiLdsModule } from './modules/ngsi-lds/ngsi-lds.module';
+import { StatisticsModule } from './modules/statistics/statistics.module';
 
 @Module({
   imports: [
@@ -43,8 +55,30 @@ import { AppService } from './app.service';
         maxRedirects: 5,
       }),
     }),
+
+    UsersModule,
+    AuthModule,
+    CamerasModule,
+    ResidentsModule,
+    DetectionsModule,
+    TrackingRoutesModule,
+    ViolationsModule,
+    NgsiLdsModule,
+    StatisticsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Apply JWT guard globally
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    // Apply Roles guard globally
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
+    },
+  ],
 })
 export class AppModule {}
