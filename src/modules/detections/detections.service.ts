@@ -14,10 +14,16 @@ import { EventsGateway } from 'src/gateways/events.gateway';
 import * as FormData from 'form-data';
 import { AiDetectionResponseDto } from './dto/response/ai-detection-response.dto';
 import { GrpcDetectionClient } from './grpc-detection.client';
+import { ViolationsService } from '../violations/violations.service';
+import {
+  ViolationType,
+  ViolationSeverity,
+} from '../violations/entities/violation.entity';
 
-// ✅ Type for AI detection result
+// Detection result shape from AI service (HTTP or gRPC)
 interface AiDetectionResult {
   track_id: string;
+  person_id: number;
   frame_id: number;
   bbox: number[];
   confidence: number;
@@ -25,7 +31,10 @@ interface AiDetectionResult {
   face_detected: boolean;
   face_encoding?: number[] | null;
   face_confidence?: number | null;
-  person_id: number;
+  violation_detected?: boolean;
+  violation_type?: string | null;
+  violation_severity?: string | null;
+  violation_description?: string | null;
   timestamp: string;
 }
 
@@ -46,6 +55,7 @@ export class DetectionsService {
     private readonly residentRepo: Repository<Resident>,
     private readonly eventsGateway: EventsGateway,
     private readonly grpcClient: GrpcDetectionClient,
+    private readonly violationsService: ViolationsService,
   ) {
     this.aiServiceUrl = this.configService.getOrThrow<string>('AI_SERVICE_URL');
     this.useGrpc = this.configService.get<boolean>('USE_GRPC') !== false;
@@ -83,27 +93,35 @@ export class DetectionsService {
       };
 
       if (this.useGrpc) {
-        // gRPC mode (FAST!)
         const grpcStartTime = Date.now();
-
         try {
-          aiResults = await this.grpcClient.detectPersons(
+          // Now returns violations[] as well
+          const grpcResult = await this.grpcClient.detectPersons(
             imageBuffer,
             cameraId,
             location,
           );
+          aiResults = {
+            detections: grpcResult.detections,
+            total_persons: grpcResult.total_persons,
+            timestamp: grpcResult.timestamp,
+          };
 
-          console.log('aiResults: ', aiResults);
+          // Auto-create violations detected by AI behavior analysis
+          if (grpcResult.violations?.length) {
+            await this.autoCreateViolations(
+              grpcResult.violations,
+              cameraId,
+              camera.location,
+            );
+          }
 
           const grpcTime = Date.now() - grpcStartTime;
-
           this.logger.debug(
-            `✅ gRPC detection: ${grpcTime}ms for camera ${cameraId}`,
+            `gRPC: ${grpcTime}ms | ${grpcResult.total_persons} persons | ${grpcResult.violations?.length ?? 0} violations`,
           );
         } catch (grpcError) {
-          this.logger.error(`gRPC failed, falling back to HTTP:`, grpcError);
-
-          // Fallback to HTTP if gRPC fails
+          this.logger.error(`gRPC failed, fallback to HTTP:`, grpcError);
           aiResults = await this.callHttpDetection(
             imageBuffer,
             fileName,
@@ -112,7 +130,6 @@ export class DetectionsService {
           );
         }
       } else {
-        // HTTP mode (fallback)
         this.logger.debug('Using HTTP mode (gRPC disabled)');
         aiResults = await this.callHttpDetection(
           imageBuffer,
@@ -401,6 +418,74 @@ export class DetectionsService {
     }
 
     return bestMatch;
+  }
+
+  /**
+   * Auto-create violations in DB from AI behavior detection results.
+   * Called when gRPC response contains violations[].
+   */
+  private async autoCreateViolations(
+    violations: AiDetectionResult[],
+    cameraId: string,
+    location: string,
+  ): Promise<void> {
+    for (const v of violations) {
+      try {
+        const violationType = this.mapToViolationType(v.violation_type ?? '');
+        const severity = this.mapToSeverity(v.violation_severity ?? '');
+
+        if (!violationType) continue; // Skip unknown types
+
+        const created = await this.violationsService.create({
+          track_id: v.track_id,
+          violation_type: violationType,
+          severity,
+          camera_id: cameraId,
+          location,
+          description: v.violation_description ?? `${v.action} detected`,
+          timestamp: v.timestamp || new Date().toISOString(),
+        });
+
+        // Broadcast violation alert via Socket.IO
+        this.eventsGateway.broadcastViolation({
+          id: created.id,
+          camera_id: cameraId,
+          track_id: v.track_id,
+          violation_type: violationType,
+          severity,
+          description: created.description,
+          timestamp: created.timestamp,
+        });
+
+        this.logger.warn(
+          `⚠️  Violation created: ${violationType} [${severity}] track=${v.track_id} cam=${cameraId}`,
+        );
+      } catch (err) {
+        this.logger.error(`Failed to create violation for track ${v.track_id}:`, err);
+      }
+    }
+  }
+
+  private mapToViolationType(raw: string): ViolationType | null {
+    const map: Record<string, ViolationType> = {
+      lying: ViolationType.LYING,
+      running: ViolationType.RUNNING,
+      unauthorized_access: ViolationType.UNAUTHORIZED_ACCESS,
+      suspicious_behavior: ViolationType.SUSPICIOUS_BEHAVIOR,
+      restricted_area: ViolationType.RESTRICTED_AREA,
+      loitering: ViolationType.LOITERING,
+    };
+    return map[raw?.toLowerCase()] ?? null;
+  }
+
+  private mapToSeverity(raw: string): ViolationSeverity {
+    const map: Record<string, ViolationSeverity> = {
+      low: ViolationSeverity.LOW,
+      medium: ViolationSeverity.MEDIUM,
+      high: ViolationSeverity.HIGH,
+      critical: ViolationSeverity.CRITICAL,
+    };
+    return map[raw?.toLowerCase()] ?? ViolationSeverity.MEDIUM;
   }
 
   private cosineSimilarity(a: number[], b: number[]): number {
